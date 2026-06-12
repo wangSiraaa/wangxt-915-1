@@ -8,6 +8,9 @@ import { VisitorEdit } from '@/pages/visitor/VisitorEdit';
 import { GuardHome } from '@/pages/guard/GuardHome';
 import { GuardVerify } from '@/pages/guard/GuardVerify';
 import { GuardRecords } from '@/pages/guard/GuardRecords';
+import { SupervisorHome } from '@/pages/supervisor/SupervisorHome';
+import { SupervisorExtensionDetail } from '@/pages/supervisor/SupervisorExtensionDetail';
+import { SupervisorDetained } from '@/pages/supervisor/SupervisorDetained';
 
 function GuardVerifyWrapper() {
   const location = useLocation();
@@ -32,6 +35,10 @@ export default function App() {
         <Route path="/guard" element={<GuardHome />} />
         <Route path="/guard/verify" element={<GuardVerifyWrapper />} />
         <Route path="/guard/records" element={<GuardRecords />} />
+
+        <Route path="/supervisor" element={<SupervisorHome />} />
+        <Route path="/supervisor/extension/:id" element={<SupervisorExtensionDetail />} />
+        <Route path="/supervisor/detained" element={<SupervisorDetained />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

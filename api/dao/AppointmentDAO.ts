@@ -16,9 +16,14 @@ function rowToAppointment(row: any): Appointment {
     companionCount: row.companion_count,
     startTime: row.start_time,
     endTime: row.end_time,
+    originalEndTime: row.original_end_time || undefined,
     status: row.status as AppointmentStatus,
+    isDetained: row.is_detained === 1 || row.is_detained === true,
+    detainedAt: row.detained_at || undefined,
     entryTime: row.entry_time || undefined,
     exitTime: row.exit_time || undefined,
+    entryGate: row.entry_gate || undefined,
+    exitGate: row.exit_gate || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -154,5 +159,83 @@ export const AppointmentDAO = {
 
   cancel(id: string): Appointment | null {
     return AppointmentDAO.updateStatus(id, 'cancelled');
+  },
+
+  setDetained(id: string): Appointment | null {
+    const db = getDb();
+    const now = new Date().toISOString();
+
+    db.prepare(
+      `UPDATE appointments 
+       SET status = 'detained', is_detained = 1, detained_at = ?, updated_at = ? 
+       WHERE id = ?`
+    ).run(now, now, id);
+
+    return AppointmentDAO.getById(id);
+  },
+
+  updateEndTime(id: string, newEndTime: string, status: AppointmentStatus): Appointment | null {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const appointment = AppointmentDAO.getById(id);
+
+    if (!appointment) return null;
+
+    const originalEndTime = appointment.originalEndTime || appointment.endTime;
+
+    db.prepare(
+      `UPDATE appointments 
+       SET end_time = ?, original_end_time = ?, status = ?, is_detained = 0, detained_at = NULL, updated_at = ? 
+       WHERE id = ?`
+    ).run(newEndTime, originalEndTime, status, now, id);
+
+    return AppointmentDAO.getById(id);
+  },
+
+  setEntryTimeWithGate(id: string, entryTime: string, gate: string): Appointment | null {
+    const db = getDb();
+    const now = new Date().toISOString();
+
+    db.prepare(
+      'UPDATE appointments SET entry_time = ?, entry_gate = ?, status = ?, updated_at = ? WHERE id = ?'
+    ).run(entryTime, gate, 'entered', now, id);
+
+    return AppointmentDAO.getById(id);
+  },
+
+  setExitTimeWithGate(id: string, exitTime: string, gate: string): Appointment | null {
+    const db = getDb();
+    const now = new Date().toISOString();
+
+    db.prepare(
+      'UPDATE appointments SET exit_time = ?, exit_gate = ?, status = ?, is_detained = 0, detained_at = NULL, updated_at = ? WHERE id = ?'
+    ).run(exitTime, gate, 'exited', now, id);
+
+    return AppointmentDAO.getById(id);
+  },
+
+  listDetained(): Appointment[] {
+    const db = getDb();
+    const rows = db.prepare(
+      "SELECT * FROM appointments WHERE is_detained = 1 ORDER BY detained_at DESC"
+    ).all();
+    return rows.map(rowToAppointment);
+  },
+
+  findEnteredByPlate(plateNumber: string): Appointment | null {
+    const db = getDb();
+    const row = db.prepare(
+      "SELECT * FROM appointments WHERE plate_number = ? AND status = 'entered' ORDER BY entry_time DESC LIMIT 1"
+    ).get(plateNumber);
+    return row ? rowToAppointment(row) : null;
+  },
+
+  listExpiredNotExited(): Appointment[] {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rows = db.prepare(
+      "SELECT * FROM appointments WHERE status = 'entered' AND end_time < ? AND is_detained = 0 ORDER BY end_time ASC"
+    ).all(now);
+    return rows.map(rowToAppointment);
   },
 };

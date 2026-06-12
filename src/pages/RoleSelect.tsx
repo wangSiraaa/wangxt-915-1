@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Users, UserPlus, Shield } from 'lucide-react';
+import { Users, UserPlus, Shield, ShieldCheck } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore.js';
 
 export function RoleSelect() {
@@ -31,6 +31,14 @@ export function RoleSelect() {
       color: 'from-blue-800 to-blue-700',
       path: '/guard',
     },
+    {
+      id: 'security_supervisor',
+      name: '安保主管',
+      description: '延期审批，滞留车辆管理',
+      icon: ShieldCheck,
+      color: 'from-purple-800 to-purple-700',
+      path: '/supervisor',
+    },
   ];
 
   const handleSelect = (role: string, path: string) => {
@@ -53,7 +61,7 @@ export function RoleSelect() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {roles.map((role) => {
             const Icon = role.icon;
             return (
@@ -95,7 +103,7 @@ export function RoleSelect() {
         </div>
 
         <div className="mt-12 text-center text-slate-500 text-sm">
-          <p>支持黑名单校验 · 预约有效期管控 · 入离园记录审计</p>
+          <p>支持黑名单校验 · 预约有效期管控 · 滞留预警 · 延期审批 · 入离园记录审计</p>
         </div>
       </div>
     </div>

@@ -42,9 +42,14 @@ export function initDatabase(): void {
       companion_count INTEGER DEFAULT 0,
       start_time DATETIME NOT NULL,
       end_time DATETIME NOT NULL,
+      original_end_time DATETIME,
       status TEXT NOT NULL DEFAULT 'pending_info',
+      is_detained INTEGER DEFAULT 0,
+      detained_at DATETIME,
       entry_time DATETIME,
       exit_time DATETIME,
+      entry_gate TEXT,
+      exit_gate TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -52,6 +57,7 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_appointments_plate ON appointments(plate_number);
     CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
     CREATE INDEX IF NOT EXISTS idx_appointments_start_time ON appointments(start_time);
+    CREATE INDEX IF NOT EXISTS idx_appointments_is_detained ON appointments(is_detained);
 
     CREATE TABLE IF NOT EXISTS visit_records (
       id TEXT PRIMARY KEY,
@@ -60,6 +66,8 @@ export function initDatabase(): void {
       visitor_name TEXT NOT NULL,
       entry_time DATETIME,
       exit_time DATETIME,
+      entry_gate TEXT,
+      exit_gate TEXT,
       status TEXT NOT NULL DEFAULT 'entered',
       FOREIGN KEY (appointment_id) REFERENCES appointments(id)
     );
@@ -88,6 +96,39 @@ export function initDatabase(): void {
 
     CREATE INDEX IF NOT EXISTS idx_rejects_plate ON reject_records(plate_number);
     CREATE INDEX IF NOT EXISTS idx_rejects_type ON reject_records(reject_type);
+
+    CREATE TABLE IF NOT EXISTS extension_requests (
+      id TEXT PRIMARY KEY,
+      appointment_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      new_end_time DATETIME NOT NULL,
+      department_confirm TEXT NOT NULL,
+      requested_by TEXT NOT NULL,
+      requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      status TEXT NOT NULL DEFAULT 'pending',
+      approver TEXT,
+      approved_at DATETIME,
+      reject_reason TEXT,
+      rejected_at DATETIME,
+      FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_extensions_appointment ON extension_requests(appointment_id);
+    CREATE INDEX IF NOT EXISTS idx_extensions_status ON extension_requests(status);
+
+    CREATE TABLE IF NOT EXISTS timeline_events (
+      id TEXT PRIMARY KEY,
+      appointment_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      operator TEXT NOT NULL,
+      operator_role TEXT NOT NULL,
+      remark TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_timeline_appointment ON timeline_events(appointment_id);
+    CREATE INDEX IF NOT EXISTS idx_timeline_action ON timeline_events(action);
   `);
 
   const blacklistCount = database.prepare('SELECT COUNT(*) as count FROM blacklist').get() as { count: number };

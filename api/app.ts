@@ -13,6 +13,7 @@ import appointmentRoutes from './routes/appointments.js'
 import verifyRoutes from './routes/verify.js'
 import blacklistRoutes from './routes/blacklist.js'
 import recordRoutes from './routes/records.js'
+import extensionRoutes from './routes/extensions.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -36,6 +37,7 @@ app.use('/api/appointments', appointmentRoutes)
 app.use('/api/verify', verifyRoutes)
 app.use('/api/blacklist', blacklistRoutes)
 app.use('/api', recordRoutes)
+app.use('/api/extensions', extensionRoutes)
 
 app.use(
   '/api/health',

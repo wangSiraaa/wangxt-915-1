@@ -1,11 +1,14 @@
 import { AppointmentDAO } from '../dao/AppointmentDAO.js';
 import { AuditDAO } from '../dao/AuditDAO.js';
 import { BlacklistDAO } from '../dao/BlacklistDAO.js';
+import { VisitRecordDAO } from '../dao/VisitRecordDAO.js';
+import { ExtensionDAO } from '../dao/ExtensionDAO.js';
 import type {
   Appointment,
   CreateAppointmentRequest,
   UpdateVisitorInfoRequest,
   VerifyResult,
+  UserRole,
 } from '../../shared/types.js';
 
 export const AppointmentService = {
@@ -46,7 +49,7 @@ export const AppointmentService = {
     return AppointmentDAO.cancel(id);
   },
 
-  verifyEntry(plateNumber: string): VerifyResult {
+  verifyEntry(plateNumber: string, gate?: string): VerifyResult {
     const plate = plateNumber.trim().toUpperCase();
 
     if (BlacklistDAO.isBlacklisted(plate)) {
@@ -56,6 +59,16 @@ export const AppointmentService = {
         success: false,
         rejectType: 'blacklist',
         rejectReason: `该车辆已被列入黑名单：${blackItem?.reason || '无具体原因'}`,
+      };
+    }
+
+    const detainedAppt = AppointmentDAO.findEnteredByPlate(plate);
+    if (detainedAppt?.isDetained) {
+      AuditDAO.recordReject(plate, 'detained', '车辆处于滞留状态，禁止再次入园', detainedAppt.id);
+      return {
+        success: false,
+        rejectType: 'detained',
+        rejectReason: '该车辆处于滞留状态，需先处理滞留问题',
       };
     }
 
@@ -83,7 +96,7 @@ export const AppointmentService = {
         continue;
       }
 
-      if (apt.status === 'entered' || apt.status === 'pending_entry') {
+      if (apt.status === 'entered' || apt.status === 'pending_entry' || apt.status === 'detained' || apt.status === 'extension_pending' || apt.status === 'extension_approved' || apt.status === 'extension_rejected') {
         validAppointment = apt;
         break;
       }
@@ -114,7 +127,7 @@ export const AppointmentService = {
     const startTime = new Date(validAppointment.startTime);
     const endTime = new Date(validAppointment.endTime);
 
-    if (validAppointment.status === 'entered') {
+    if (validAppointment.status === 'entered' || validAppointment.status === 'detained' || validAppointment.status === 'extension_approved' || validAppointment.status === 'extension_pending' || validAppointment.status === 'extension_rejected') {
       AuditDAO.recordReject(plate, 'duplicate_entry', '车辆已在园区内，请勿重复入园', validAppointment.id);
       return {
         success: false,
@@ -133,7 +146,7 @@ export const AppointmentService = {
       };
     }
 
-    if (now > endTime) {
+    if (now > endTime && validAppointment.status === 'pending_entry') {
       AuditDAO.recordReject(plate, 'expired', '预约已过期', validAppointment.id);
       return {
         success: false,
@@ -148,17 +161,39 @@ export const AppointmentService = {
     };
   },
 
-  confirmEntry(plateNumber: string): Appointment | null {
-    const result = AppointmentService.verifyEntry(plateNumber);
+  confirmEntry(plateNumber: string, gate?: string): Appointment | null {
+    const result = AppointmentService.verifyEntry(plateNumber, gate);
     if (!result.success || !result.appointment) {
       return null;
     }
 
     const now = new Date().toISOString();
-    return AppointmentDAO.setEntryTime(result.appointment.id, now);
+    const updated = gate
+      ? AppointmentDAO.setEntryTimeWithGate(result.appointment.id, now, gate)
+      : AppointmentDAO.setEntryTime(result.appointment.id, now);
+
+    if (updated) {
+      VisitRecordDAO.createEntry(
+        updated.id,
+        updated.plateNumber!,
+        updated.visitorName,
+        updated.entryTime!,
+        gate
+      );
+
+      ExtensionDAO.addTimelineEvent(
+        updated.id,
+        'entered_park',
+        gate || '门岗',
+        'guard',
+        gate ? `从 ${gate} 入园` : '车辆入园'
+      );
+    }
+
+    return updated;
   },
 
-  verifyExit(plateNumber: string): VerifyResult {
+  verifyExit(plateNumber: string, gate?: string): VerifyResult {
     const plate = plateNumber.trim().toUpperCase();
     const appointments = AppointmentDAO.findByPlateNumber(plate);
 
@@ -171,7 +206,12 @@ export const AppointmentService = {
       };
     }
 
-    const enteredAppointment = appointments.find(a => a.status === 'entered');
+    const enteredAppointment = appointments.find(a => 
+      a.status === 'entered' || 
+      a.status === 'detained' || 
+      a.status === 'extension_approved' || 
+      a.status === 'extension_rejected'
+    );
 
     if (!enteredAppointment) {
       const exitedApt = appointments.find(a => a.status === 'exited');
@@ -198,13 +238,78 @@ export const AppointmentService = {
     };
   },
 
-  confirmExit(plateNumber: string): Appointment | null {
-    const result = AppointmentService.verifyExit(plateNumber);
+  confirmExit(plateNumber: string, gate?: string): Appointment | null {
+    const result = AppointmentService.verifyExit(plateNumber, gate);
     if (!result.success || !result.appointment) {
       return null;
     }
 
     const now = new Date().toISOString();
-    return AppointmentDAO.setExitTime(result.appointment.id, now);
+    const appointmentId = result.appointment.id;
+    const updated = gate
+      ? AppointmentDAO.setExitTimeWithGate(appointmentId, now, gate)
+      : AppointmentDAO.setExitTime(appointmentId, now);
+
+    if (updated) {
+      const activeRecord = VisitRecordDAO.findActiveByAppointmentId(appointmentId);
+      if (activeRecord) {
+        VisitRecordDAO.setExitTime(activeRecord.id, now, gate);
+      }
+
+      ExtensionDAO.addTimelineEvent(
+        updated.id,
+        'exited_park',
+        gate || '门岗',
+        'guard',
+        gate ? `从 ${gate} 离园` : '车辆离园'
+      );
+    }
+
+    return updated;
+  },
+
+  detectAndMarkDetained(): Appointment[] {
+    const expiredAppointments = AppointmentDAO.listExpiredNotExited();
+    const detained: Appointment[] = [];
+
+    for (const apt of expiredAppointments) {
+      if (apt.status === 'extension_pending') {
+        continue;
+      }
+
+      const updated = AppointmentDAO.setDetained(apt.id);
+      if (updated) {
+        detained.push(updated);
+
+        ExtensionDAO.addTimelineEvent(
+          apt.id,
+          'detained',
+          'system',
+          'guard',
+          '车辆超过预约结束时间未离园，自动标记为滞留'
+        );
+
+        AuditDAO.recordReject(
+          apt.plateNumber!,
+          'detained',
+          '车辆超过预约结束时间未离园，已标记为滞留',
+          apt.id
+        );
+      }
+    }
+
+    return detained;
+  },
+
+  listDetainedAppointments(): Appointment[] {
+    return AppointmentDAO.listDetained();
+  },
+
+  getAppointmentWithDetails(id: string): { appointment: Appointment | null; timeline: any[]; extensions: any[] } {
+    const appointment = AppointmentDAO.getById(id);
+    const timeline = appointment ? ExtensionDAO.getTimelineByAppointmentId(id) : [];
+    const extensions = appointment ? ExtensionDAO.getByAppointmentId(id) : [];
+
+    return { appointment, timeline, extensions };
   },
 };

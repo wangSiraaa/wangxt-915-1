@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, LogIn, LogOut, Users, Clock, Search } from 'lucide-react';
+import { Shield, LogIn, LogOut, Users, Clock, Search, AlertTriangle, AlertOctagon } from 'lucide-react';
 import { Layout } from '@/components/Layout.js';
 import { Card } from '@/components/Card.js';
 import { Button } from '@/components/Button.js';
-import { recordApi } from '@/services/api.js';
-import { formatPlateNumber } from '@/lib/utils.js';
+import { StatusBadge } from '@/components/StatusBadge.js';
+import { recordApi, extensionApi } from '@/services/api.js';
+import { formatPlateNumber, formatDateTime } from '@/lib/utils.js';
+import type { Appointment } from '@shared/types';
 
 export function GuardHome() {
   const navigate = useNavigate();
@@ -17,9 +19,12 @@ export function GuardHome() {
     inPark: 0,
   });
   const [todayRecords, setTodayRecords] = useState<any[]>([]);
+  const [detainedList, setDetainedList] = useState<Appointment[]>([]);
+  const [detainedCount, setDetainedCount] = useState(0);
 
   useEffect(() => {
     loadStats();
+    loadDetained();
   }, []);
 
   const loadStats = async () => {
@@ -30,6 +35,16 @@ export function GuardHome() {
       ]);
       setStats(statsData);
       setTodayRecords(records.slice(0, 5));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const loadDetained = async () => {
+    try {
+      const result = await extensionApi.detectDetained();
+      setDetainedCount(result.count);
+      setDetainedList(result.appointments.slice(0, 5));
     } catch (err) {
       console.error(err);
     }
@@ -98,7 +113,7 @@ export function GuardHome() {
           </Card.Body>
         </Card>
 
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           <StatCard
             label="今日总访客"
             value={stats.total}
@@ -123,7 +138,64 @@ export function GuardHome() {
             icon={<Clock size={24} />}
             color="amber"
           />
+          <StatCard
+            label="滞留车辆"
+            value={detainedCount}
+            icon={<AlertTriangle size={24} />}
+            color="red"
+          />
         </div>
+
+        {detainedCount > 0 && (
+          <Card className="border-red-200 bg-red-50/50">
+            <Card.Header>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertOctagon size={20} className="text-red-600" />
+                  <h2 className="text-lg font-semibold text-red-900">滞留预警</h2>
+                  <span className="bg-red-100 text-red-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                    {detainedCount} 辆
+                  </span>
+                </div>
+                <button
+                  onClick={loadDetained}
+                  className="text-sm text-red-600 hover:text-red-700 font-medium"
+                >
+                  刷新
+                </button>
+              </div>
+            </Card.Header>
+            <div className="divide-y divide-red-100">
+              {detainedList.map((apt) => (
+                <div
+                  key={apt.id}
+                  className="px-6 py-3 flex items-center justify-between hover:bg-red-50/80 cursor-pointer"
+                  onClick={() => navigate(`/guard/verify?type=exit&plate=${apt.plateNumber}`)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center text-red-600">
+                      <AlertTriangle size={18} />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900 font-mono">
+                        {formatPlateNumber(apt.plateNumber!)}
+                      </p>
+                      <p className="text-sm text-gray-500">{apt.visitorName}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-red-600 font-medium">
+                      滞留 {apt.detainedAt ? getDetainedDuration(apt.detainedAt) : ''}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      预约结束: {apt.originalEndTime ? formatDateTime(apt.originalEndTime) : formatDateTime(apt.endTime)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         <Card>
           <Card.Header>
@@ -206,6 +278,7 @@ function StatCard({
     emerald: 'bg-emerald-50 text-emerald-600',
     slate: 'bg-slate-50 text-slate-600',
     amber: 'bg-amber-50 text-amber-600',
+    red: 'bg-red-50 text-red-600',
   };
 
   return (
@@ -223,4 +296,17 @@ function StatCard({
       </Card.Body>
     </Card>
   );
+}
+
+function getDetainedDuration(detainedAt: string): string {
+  const now = new Date();
+  const detained = new Date(detainedAt);
+  const diffMs = now.getTime() - detained.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  
+  if (diffHours > 0) {
+    return `${diffHours}小时${diffMins}分钟`;
+  }
+  return `${diffMins}分钟`;
 }

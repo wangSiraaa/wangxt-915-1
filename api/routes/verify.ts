@@ -6,7 +6,7 @@ const router = Router();
 
 router.post('/entry', (req: Request, res: Response): void => {
   try {
-    const { plateNumber, confirm } = req.body;
+    const { plateNumber, confirm, gate } = req.body;
 
     if (!plateNumber) {
       res.status(400).json({
@@ -16,17 +16,11 @@ router.post('/entry', (req: Request, res: Response): void => {
       return;
     }
 
-    const result = AppointmentService.verifyEntry(plateNumber);
+    const result = AppointmentService.verifyEntry(plateNumber, gate);
 
     if (confirm && result.success && result.appointment) {
-      const updated = AppointmentService.confirmEntry(plateNumber);
+      const updated = AppointmentService.confirmEntry(plateNumber, gate);
       if (updated) {
-        VisitRecordDAO.createEntry(
-          updated.id,
-          updated.plateNumber!,
-          updated.visitorName,
-          updated.entryTime!
-        );
         result.appointment = updated;
       }
     }
@@ -50,7 +44,7 @@ router.post('/entry', (req: Request, res: Response): void => {
 
 router.post('/exit', (req: Request, res: Response): void => {
   try {
-    const { plateNumber, confirm } = req.body;
+    const { plateNumber, confirm, gate } = req.body;
 
     if (!plateNumber) {
       res.status(400).json({
@@ -60,15 +54,11 @@ router.post('/exit', (req: Request, res: Response): void => {
       return;
     }
 
-    const result = AppointmentService.verifyExit(plateNumber);
+    const result = AppointmentService.verifyExit(plateNumber, gate);
 
     if (confirm && result.success && result.appointment) {
-      const updated = AppointmentService.confirmExit(plateNumber);
+      const updated = AppointmentService.confirmExit(plateNumber, gate);
       if (updated) {
-        const activeRecord = VisitRecordDAO.findActiveByPlate(plateNumber.trim().toUpperCase());
-        if (activeRecord) {
-          VisitRecordDAO.setExitTime(activeRecord.id, updated.exitTime!);
-        }
         result.appointment = updated;
       }
     }

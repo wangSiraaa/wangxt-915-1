@@ -7,6 +7,9 @@ import type {
   BlacklistItem,
   PlateChangeAudit,
   RejectRecord,
+  ExtensionRequest,
+  TimelineEvent,
+  CreateExtensionRequest,
 } from '@shared/types';
 
 const API_BASE = '/api';
@@ -59,16 +62,16 @@ export const appointmentApi = {
 };
 
 export const verifyApi = {
-  entry: (plateNumber: string, confirm = false) =>
+  entry: (plateNumber: string, confirm = false, gate?: string) =>
     request<VerifyResult>('/verify/entry', {
       method: 'POST',
-      body: JSON.stringify({ plateNumber, confirm }),
+      body: JSON.stringify({ plateNumber, confirm, gate }),
     }),
 
-  exit: (plateNumber: string, confirm = false) =>
+  exit: (plateNumber: string, confirm = false, gate?: string) =>
     request<VerifyResult>('/verify/exit', {
       method: 'POST',
-      body: JSON.stringify({ plateNumber, confirm }),
+      body: JSON.stringify({ plateNumber, confirm, gate }),
     }),
 };
 
@@ -116,4 +119,55 @@ export const recordApi = {
     const query = searchParams.toString();
     return request<RejectRecord[]>(`/reject-records${query ? `?${query}` : ''}`);
   },
+};
+
+export const extensionApi = {
+  list: (params?: { status?: string }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    const query = searchParams.toString();
+    return request<ExtensionRequest[]>(`/extensions${query ? `?${query}` : ''}`);
+  },
+
+  get: (id: string) => request<ExtensionRequest>(`/extensions/${id}`),
+
+  create: (data: CreateExtensionRequest & { operator?: string; operatorRole?: string }) =>
+    request<ExtensionRequest>('/extensions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  approve: (id: string, approver?: string) =>
+    request<{ extension: ExtensionRequest; appointment: Appointment }>(`/extensions/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ approver }),
+    }),
+
+  reject: (id: string, rejectReason: string, approver?: string) =>
+    request<{ extension: ExtensionRequest; appointment: Appointment }>(`/extensions/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ approver, rejectReason }),
+    }),
+
+  getByAppointment: (appointmentId: string) =>
+    request<ExtensionRequest[]>(`/extensions/appointment/${appointmentId}`),
+
+  getTimeline: (appointmentId: string) =>
+    request<TimelineEvent[]>(`/extensions/timeline/${appointmentId}`),
+
+  getParkClosingTime: () =>
+    request<{ hour: number; minute: number }>('/extensions/park-closing-time'),
+
+  detectDetained: () =>
+    request<{ count: number; appointments: Appointment[] }>('/extensions/detect-detained', {
+      method: 'POST',
+    }),
+
+  listDetained: () =>
+    request<Appointment[]>('/extensions/detained/list'),
+
+  getAppointmentDetails: (id: string) =>
+    request<{ appointment: Appointment; timeline: TimelineEvent[]; extensions: ExtensionRequest[] }>(
+      `/extensions/appointment/${id}/details`
+    ),
 };

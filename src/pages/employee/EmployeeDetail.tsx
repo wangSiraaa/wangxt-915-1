@@ -1,21 +1,45 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calendar, Clock, Car, Users, Phone, Building, FileText, XCircle, History } from 'lucide-react';
+import {
+  ArrowLeft,
+  Calendar,
+  Clock,
+  Car,
+  Users,
+  Phone,
+  Building,
+  FileText,
+  XCircle,
+  History,
+  Clock3,
+  CheckCircle,
+  AlertTriangle,
+  Plus,
+} from 'lucide-react';
 import { Layout } from '@/components/Layout.js';
 import { Card } from '@/components/Card.js';
 import { Button } from '@/components/Button.js';
 import { StatusBadge } from '@/components/StatusBadge.js';
-import { appointmentApi, recordApi } from '@/services/api.js';
+import { appointmentApi, recordApi, extensionApi } from '@/services/api.js';
 import { formatDateTime, formatPlateNumber } from '@/lib/utils.js';
-import type { Appointment, PlateChangeAudit } from '@shared/types';
+import type { Appointment, PlateChangeAudit, TimelineEvent, ExtensionRequest } from '@shared/types';
 
 export function EmployeeDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [appointment, setAppointment] = useState<Appointment | null>(null);
   const [plateChanges, setPlateChanges] = useState<PlateChangeAudit[]>([]);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [extensions, setExtensions] = useState<ExtensionRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [showExtensionModal, setShowExtensionModal] = useState(false);
+  const [extensionForm, setExtensionForm] = useState({
+    reason: '',
+    newEndTime: '',
+    departmentConfirm: '',
+  });
+  const [submittingExtension, setSubmittingExtension] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -26,12 +50,16 @@ export function EmployeeDetail() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [apt, changes] = await Promise.all([
+      const [apt, changes, tl, exts] = await Promise.all([
         appointmentApi.get(id!),
         recordApi.getPlateChangeAudits(id!),
+        extensionApi.getTimeline(id!),
+        extensionApi.getByAppointment(id!),
       ]);
       setAppointment(apt);
       setPlateChanges(changes);
+      setTimeline(tl);
+      setExtensions(exts);
     } catch (err) {
       alert((err as Error).message);
     } finally {
@@ -53,6 +81,49 @@ export function EmployeeDetail() {
     }
   };
 
+  const handleExtensionSubmit = async () => {
+    if (!extensionForm.reason.trim()) {
+      alert('请填写延期原因');
+      return;
+    }
+    if (!extensionForm.newEndTime) {
+      alert('请选择新的结束时间');
+      return;
+    }
+    if (!extensionForm.departmentConfirm.trim()) {
+      alert('请填写受访部门确认');
+      return;
+    }
+
+    setSubmittingExtension(true);
+    try {
+      await extensionApi.create({
+        appointmentId: id!,
+        reason: extensionForm.reason,
+        newEndTime: new Date(extensionForm.newEndTime).toISOString(),
+        departmentConfirm: extensionForm.departmentConfirm,
+        requestedBy: appointment?.employeeName || '员工',
+        operator: appointment?.employeeName || '员工',
+        operatorRole: 'employee',
+      });
+      setShowExtensionModal(false);
+      setExtensionForm({ reason: '', newEndTime: '', departmentConfirm: '' });
+      loadData();
+      alert('延期申请已提交，请等待审批');
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setSubmittingExtension(false);
+    }
+  };
+
+  const canCancel = appointment?.status === 'pending_info' || appointment?.status === 'pending_entry';
+  const canExtend = appointment && 
+    appointment.status !== 'exited' && 
+    appointment.status !== 'cancelled' && 
+    appointment.status !== 'expired' &&
+    !extensions.some(e => e.status === 'pending');
+
   if (loading) {
     return (
       <Layout role="employee">
@@ -69,8 +140,6 @@ export function EmployeeDetail() {
     );
   }
 
-  const canCancel = appointment.status === 'pending_info' || appointment.status === 'pending_entry';
-
   return (
     <Layout role="employee">
       <div className="space-y-6">
@@ -86,16 +155,32 @@ export function EmployeeDetail() {
               <div className="flex items-center gap-3">
                 <h1 className="text-2xl font-bold text-gray-900">预约详情</h1>
                 <StatusBadge status={appointment.status} />
+                {appointment.isDetained && (
+                  <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
+                    已滞留
+                  </span>
+                )}
               </div>
               <p className="text-gray-500 mt-1">预约号：{appointment.id}</p>
             </div>
           </div>
-          {canCancel && (
-            <Button variant="danger" onClick={handleCancel} disabled={cancelling}>
-              <XCircle size={16} className="mr-2" />
-              {cancelling ? '取消中...' : '取消预约'}
-            </Button>
-          )}
+          <div className="flex items-center gap-3">
+            {canExtend && (
+              <Button
+                variant="primary"
+                onClick={() => setShowExtensionModal(true)}
+              >
+                <Clock3 size={16} className="mr-2" />
+                申请延期
+              </Button>
+            )}
+            {canCancel && (
+              <Button variant="danger" onClick={handleCancel} disabled={cancelling}>
+                <XCircle size={16} className="mr-2" />
+                {cancelling ? '取消中...' : '取消预约'}
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-6">
@@ -145,6 +230,78 @@ export function EmployeeDetail() {
               </Card.Body>
             </Card>
 
+            {extensions.length > 0 && (
+              <Card>
+                <Card.Header>
+                  <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Clock3 size={18} className="text-gray-500" />
+                    延期申请记录
+                  </h2>
+                </Card.Header>
+                <Card.Body>
+                  <div className="space-y-3">
+                    {extensions.map((ext) => (
+                      <div
+                        key={ext.id}
+                        className="p-4 bg-gray-50 rounded-lg"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                ext.status === 'approved'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : ext.status === 'rejected'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {ext.status === 'approved'
+                                ? '已批准'
+                                : ext.status === 'rejected'
+                                ? '已拒绝'
+                                : '待审批'}
+                            </span>
+                            <span className="text-sm text-gray-500">
+                              申请时间：{formatDateTime(ext.requestedAt)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500">延期至：</span>
+                            <span className="text-gray-900 font-medium">
+                              {formatDateTime(ext.newEndTime)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">受访部门确认：</span>
+                            <span className="text-gray-900">{ext.departmentConfirm}</span>
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-gray-500">延期原因：</span>
+                            <span className="text-gray-900">{ext.reason}</span>
+                          </div>
+                          {ext.rejectReason && (
+                            <div className="col-span-2">
+                              <span className="text-gray-500">拒绝原因：</span>
+                              <span className="text-rose-600">{ext.rejectReason}</span>
+                            </div>
+                          )}
+                          {ext.approver && (
+                            <div>
+                              <span className="text-gray-500">审批人：</span>
+                              <span className="text-gray-900">{ext.approver}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card.Body>
+              </Card>
+            )}
+
             {plateChanges.length > 0 && (
               <Card>
                 <Card.Header>
@@ -186,6 +343,67 @@ export function EmployeeDetail() {
                 </Card.Body>
               </Card>
             )}
+
+            <Card>
+              <Card.Header>
+                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Clock size={18} className="text-gray-500" />
+                  操作时间线
+                </h2>
+              </Card.Header>
+              <Card.Body>
+                <div className="relative">
+                  <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
+                  <div className="space-y-4">
+                    {timeline.map((event) => (
+                      <div key={event.id} className="relative pl-10">
+                        <div
+                          className={`absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center ${
+                            event.action === 'entered_park'
+                              ? 'bg-emerald-100 text-emerald-600'
+                              : event.action === 'exited_park'
+                              ? 'bg-slate-100 text-slate-600'
+                              : event.action === 'detained'
+                              ? 'bg-red-100 text-red-600'
+                              : event.action === 'extension_requested'
+                              ? 'bg-amber-100 text-amber-600'
+                              : event.action === 'extension_approved'
+                              ? 'bg-emerald-100 text-emerald-600'
+                              : event.action === 'extension_rejected'
+                              ? 'bg-rose-100 text-rose-600'
+                              : 'bg-blue-100 text-blue-600'
+                          }`}
+                        >
+                          {event.action === 'entered_park' && <CheckCircle size={16} />}
+                          {event.action === 'exited_park' && <CheckCircle size={16} />}
+                          {event.action === 'detained' && <AlertTriangle size={16} />}
+                          {event.action === 'extension_requested' && <Clock3 size={16} />}
+                          {event.action === 'extension_approved' && <CheckCircle size={16} />}
+                          {event.action === 'extension_rejected' && <XCircle size={16} />}
+                          {!['entered_park', 'exited_park', 'detained', 'extension_requested', 'extension_approved', 'extension_rejected'].includes(event.action) && <Plus size={16} />}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-900">
+                              {getTimelineActionLabel(event.action)}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {formatDateTime(event.createdAt)}
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-500 mt-0.5">
+                            操作人：{event.operator} ({getRoleLabel(event.operatorRole)})
+                          </div>
+                          {event.remark && (
+                            <div className="text-sm text-gray-600 mt-1">{event.remark}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Card.Body>
+            </Card>
           </div>
 
           <div className="space-y-6">
@@ -213,8 +431,24 @@ export function EmployeeDetail() {
                     <p className="font-medium text-gray-900">
                       {formatDateTime(appointment.endTime)}
                     </p>
+                    {appointment.originalEndTime && (
+                      <p className="text-xs text-gray-400 line-through">
+                        原结束时间：{formatDateTime(appointment.originalEndTime)}
+                      </p>
+                    )}
                   </div>
                 </div>
+                {appointment.isDetained && appointment.detainedAt && (
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle size={16} className="text-red-500" />
+                    <div>
+                      <p className="text-sm text-gray-500">滞留时间</p>
+                      <p className="font-medium text-red-600">
+                        {formatDateTime(appointment.detainedAt)}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </Card.Body>
             </Card>
 
@@ -239,6 +473,11 @@ export function EmployeeDetail() {
                         ? formatDateTime(appointment.entryTime)
                         : '未入园'}
                     </p>
+                    {appointment.entryGate && (
+                      <p className="text-xs text-gray-400">
+                        入口：{appointment.entryGate}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -254,6 +493,11 @@ export function EmployeeDetail() {
                         ? formatDateTime(appointment.exitTime)
                         : '未离园'}
                     </p>
+                    {appointment.exitGate && (
+                      <p className="text-xs text-gray-400">
+                        出口：{appointment.exitGate}
+                      </p>
+                    )}
                   </div>
                 </div>
               </Card.Body>
@@ -284,6 +528,87 @@ export function EmployeeDetail() {
           </div>
         </div>
       </div>
+
+      {showExtensionModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-xl font-bold text-gray-900">申请延期</h3>
+              <p className="text-gray-500 mt-1">填写延期信息并提交审批</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  当前结束时间
+                </label>
+                <div className="px-4 py-3 bg-gray-50 rounded-lg text-gray-600">
+                  {formatDateTime(appointment.endTime)}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  新结束时间 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={extensionForm.newEndTime}
+                  onChange={(e) =>
+                    setExtensionForm({ ...extensionForm, newEndTime: e.target.value })
+                  }
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  延期时间不能超过园区闭园时间（22:00）
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  延期原因 <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={extensionForm.reason}
+                  onChange={(e) =>
+                    setExtensionForm({ ...extensionForm, reason: e.target.value })
+                  }
+                  placeholder="请说明延期原因"
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  受访部门确认 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={extensionForm.departmentConfirm}
+                  onChange={(e) =>
+                    setExtensionForm({ ...extensionForm, departmentConfirm: e.target.value })
+                  }
+                  placeholder="请填写受访部门确认信息"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setShowExtensionModal(false)}
+                disabled={submittingExtension}
+              >
+                取消
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleExtensionSubmit}
+                disabled={submittingExtension}
+              >
+                {submittingExtension ? '提交中...' : '提交申请'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }
@@ -295,4 +620,31 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <p className="font-medium text-gray-900 mt-0.5">{value}</p>
     </div>
   );
+}
+
+function getTimelineActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    appointment_created: '创建预约',
+    visitor_info_updated: '补充访客信息',
+    entered_park: '车辆入园',
+    exited_park: '车辆离园',
+    detained: '标记滞留',
+    extension_requested: '提交延期申请',
+    extension_approved: '延期申请已批准',
+    extension_rejected: '延期申请已拒绝',
+    appointment_cancelled: '取消预约',
+    appointment_expired: '预约过期',
+  };
+  return labels[action] || action;
+}
+
+function getRoleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    employee: '员工',
+    visitor: '访客',
+    guard: '门岗',
+    security_supervisor: '安保主管',
+    system: '系统',
+  };
+  return labels[role] || role;
 }

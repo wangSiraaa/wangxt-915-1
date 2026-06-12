@@ -1,11 +1,11 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, UserPlus, Car, FileText, ArrowLeft, Shield, Users, ClipboardList } from 'lucide-react';
+import { Home, UserPlus, Car, FileText, ArrowLeft, Shield, Users, ClipboardList, ShieldCheck, Clock } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore.js';
 import { cn } from '@/lib/utils.js';
 
 interface LayoutProps {
   children: React.ReactNode;
-  role: 'employee' | 'visitor' | 'guard';
+  role: 'employee' | 'visitor' | 'guard' | 'security_supervisor';
 }
 
 const navItems = {
@@ -21,18 +21,24 @@ const navItems = {
     { path: '/guard/exit', label: '离园登记', icon: Car },
     { path: '/guard/records', label: '通行记录', icon: ClipboardList },
   ],
+  security_supervisor: [
+    { path: '/supervisor', label: '延期审批', icon: Clock },
+    { path: '/supervisor/detained', label: '滞留车辆', icon: Shield },
+  ],
 };
 
 const roleNames = {
   employee: '员工端',
   visitor: '访客端',
   guard: '门岗端',
+  security_supervisor: '安保主管',
 };
 
 const roleColors = {
   employee: 'from-slate-800 to-slate-700',
   visitor: 'from-emerald-700 to-emerald-600',
   guard: 'from-blue-800 to-blue-700',
+  security_supervisor: 'from-purple-800 to-purple-700',
 };
 
 export function Layout({ children, role }: LayoutProps) {
@@ -63,6 +69,7 @@ export function Layout({ children, role }: LayoutProps) {
               {role === 'employee' && <Users size={20} />}
               {role === 'visitor' && <UserPlus size={20} />}
               {role === 'guard' && <Shield size={20} />}
+              {role === 'security_supervisor' && <ShieldCheck size={20} />}
             </div>
             <div>
               <h1 className="text-lg font-semibold">{roleNames[role]}</h1>

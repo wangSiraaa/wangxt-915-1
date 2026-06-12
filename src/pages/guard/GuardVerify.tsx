@@ -22,6 +22,8 @@ import { verifyApi } from '@/services/api.js';
 import { formatDateTime, formatPlateNumber } from '@/lib/utils.js';
 import type { Appointment, RejectType } from '@shared/types';
 
+const GATE_OPTIONS = ['东门岗', '西门岗', '南门岗', '北门岗'];
+
 export function GuardVerify() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -29,6 +31,7 @@ export function GuardVerify() {
   const initialPlate = searchParams.get('plate') || '';
 
   const [plateNumber, setPlateNumber] = useState(initialPlate);
+  const [selectedGate, setSelectedGate] = useState<string>(GATE_OPTIONS[0]);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState<{
@@ -39,14 +42,14 @@ export function GuardVerify() {
   } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
-  const doVerify = useCallback(async (plate: string, verifyType: 'entry' | 'exit') => {
+  const doVerify = useCallback(async (plate: string, verifyType: 'entry' | 'exit', gate?: string) => {
     if (!plate.trim()) return;
     setVerifying(true);
     setResult(null);
     try {
       const data = verifyType === 'entry'
-        ? await verifyApi.entry(plate, false)
-        : await verifyApi.exit(plate, false);
+        ? await verifyApi.entry(plate, false, gate)
+        : await verifyApi.exit(plate, false, gate);
       setResult(data);
     } catch (err) {
       alert((err as Error).message);
@@ -57,16 +60,16 @@ export function GuardVerify() {
 
   useEffect(() => {
     if (initialPlate) {
-      doVerify(initialPlate, type);
+      doVerify(initialPlate, type, selectedGate);
     }
-  }, [initialPlate, type, doVerify]);
+  }, [initialPlate, type, selectedGate, doVerify]);
 
   useEffect(() => {
     setResult(null);
     setConfirmed(false);
   }, [type]);
 
-  const handleVerify = () => doVerify(plateNumber, type);
+  const handleVerify = () => doVerify(plateNumber, type, selectedGate);
 
   const handleConfirm = async () => {
     if (!result?.success || !result.appointment) return;
@@ -74,9 +77,9 @@ export function GuardVerify() {
     setLoading(true);
     try {
       if (type === 'entry') {
-        await verifyApi.entry(plateNumber, true);
+        await verifyApi.entry(plateNumber, true, selectedGate);
       } else {
-        await verifyApi.exit(plateNumber, true);
+        await verifyApi.exit(plateNumber, true, selectedGate);
       }
       setConfirmed(true);
     } catch (err) {
@@ -146,18 +149,38 @@ export function GuardVerify() {
 
         <Card>
           <Card.Body className="py-6">
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={plateNumber}
-                onChange={(e) => setPlateNumber(e.target.value.toUpperCase())}
-                onKeyDown={(e) => e.key === 'Enter' && handleVerify()}
-                placeholder="请输入车牌号"
-                className="flex-1 px-4 py-3 text-lg font-mono tracking-wider border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <Button size="lg" onClick={handleVerify} disabled={verifying}>
-                {verifying ? '核验中...' : '核验'}
-              </Button>
+            <div className="space-y-4">
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={plateNumber}
+                  onChange={(e) => setPlateNumber(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => e.key === 'Enter' && handleVerify()}
+                  placeholder="请输入车牌号"
+                  className="flex-1 px-4 py-3 text-lg font-mono tracking-wider border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <Button size="lg" onClick={handleVerify} disabled={verifying}>
+                  {verifying ? '核验中...' : '核验'}
+                </Button>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-600 whitespace-nowrap">当前门岗：</label>
+                <div className="flex gap-2 flex-wrap">
+                  {GATE_OPTIONS.map((gate) => (
+                    <button
+                      key={gate}
+                      onClick={() => setSelectedGate(gate)}
+                      className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                        selectedGate === gate
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                      }`}
+                    >
+                      {gate}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </Card.Body>
         </Card>
@@ -236,12 +259,44 @@ export function GuardVerify() {
                   label="同行人数"
                   value={`${result.appointment.companionCount + 1} 人`}
                 />
+                {result.appointment.entryGate && (
+                  <InfoItem
+                    icon={<LogIn size={16} className="text-emerald-500" />}
+                    label="入口门岗"
+                    value={result.appointment.entryGate}
+                  />
+                )}
+                {result.appointment.exitGate && (
+                  <InfoItem
+                    icon={<LogOut size={16} className="text-slate-500" />}
+                    label="出口门岗"
+                    value={result.appointment.exitGate}
+                  />
+                )}
+                {result.appointment.isDetained && (
+                  <div className="col-span-2">
+                    <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
+                      <AlertTriangle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-red-800">车辆已滞留</p>
+                        <p className="text-xs text-red-600 mt-0.5">
+                          滞留时间：{result.appointment.detainedAt ? formatDateTime(result.appointment.detainedAt) : '-'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="col-span-2">
                   <InfoItem
                     icon={<Clock size={16} className="text-blue-500" />}
                     label="预约时间"
                     value={`${formatDateTime(result.appointment.startTime)} - ${formatDateTime(result.appointment.endTime)}`}
                   />
+                  {result.appointment.originalEndTime && result.appointment.originalEndTime !== result.appointment.endTime && (
+                    <p className="text-xs text-gray-400 mt-1 ml-11">
+                      原始结束时间：{formatDateTime(result.appointment.originalEndTime)}（已延期）
+                    </p>
+                  )}
                 </div>
               </div>
             </Card.Body>
