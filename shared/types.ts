@@ -6,7 +6,7 @@ export type AppointmentStatus =
   | 'cancelled'
   | 'expired';
 
-export type RejectType = 'blacklist' | 'expired' | 'not_started' | 'duplicate_entry' | 'not_found';
+export type RejectType = 'blacklist' | 'expired' | 'not_started' | 'duplicate_entry' | 'not_found' | 'already_exited' | 'not_entered';
 
 export interface Appointment {
   id: string;

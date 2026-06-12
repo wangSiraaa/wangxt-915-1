@@ -162,13 +162,33 @@ export const AppointmentService = {
     const plate = plateNumber.trim().toUpperCase();
     const appointments = AppointmentDAO.findByPlateNumber(plate);
 
-    const enteredAppointment = appointments.find(a => a.status === 'entered');
-
-    if (!enteredAppointment) {
+    if (appointments.length === 0) {
+      AuditDAO.recordReject(plate, 'not_found', '未找到该车牌的预约记录', undefined);
       return {
         success: false,
         rejectType: 'not_found',
-        rejectReason: '未找到该车辆的入园记录',
+        rejectReason: '未找到该车牌的预约记录',
+      };
+    }
+
+    const enteredAppointment = appointments.find(a => a.status === 'entered');
+
+    if (!enteredAppointment) {
+      const exitedApt = appointments.find(a => a.status === 'exited');
+      if (exitedApt) {
+        AuditDAO.recordReject(plate, 'already_exited', '该车辆已离园，无需重复登记', exitedApt.id);
+        return {
+          success: false,
+          rejectType: 'already_exited',
+          rejectReason: '该车辆已离园，无需重复登记',
+        };
+      }
+
+      AuditDAO.recordReject(plate, 'not_entered', '该车辆尚未入园，无法办理离园', undefined);
+      return {
+        success: false,
+        rejectType: 'not_entered',
+        rejectReason: '该车辆尚未入园，无法办理离园',
       };
     }
 

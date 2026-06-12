@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -39,26 +39,34 @@ export function GuardVerify() {
   } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
-  useEffect(() => {
-    if (initialPlate) {
-      handleVerify();
-    }
-  }, []);
-
-  const handleVerify = async () => {
-    if (!plateNumber.trim()) return;
-
+  const doVerify = useCallback(async (plate: string, verifyType: 'entry' | 'exit') => {
+    if (!plate.trim()) return;
     setVerifying(true);
     setResult(null);
     try {
-      const data = await verifyApi.entry(plateNumber, false);
+      const data = verifyType === 'entry'
+        ? await verifyApi.entry(plate, false)
+        : await verifyApi.exit(plate, false);
       setResult(data);
     } catch (err) {
       alert((err as Error).message);
     } finally {
       setVerifying(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (initialPlate) {
+      doVerify(initialPlate, type);
+    }
+  }, [initialPlate, type, doVerify]);
+
+  useEffect(() => {
+    setResult(null);
+    setConfirmed(false);
+  }, [type]);
+
+  const handleVerify = () => doVerify(plateNumber, type);
 
   const handleConfirm = async () => {
     if (!result?.success || !result.appointment) return;
@@ -88,6 +96,10 @@ export function GuardVerify() {
         return <Clock size={64} className="text-amber-500" />;
       case 'duplicate_entry':
         return <AlertTriangle size={64} className="text-red-500" />;
+      case 'already_exited':
+        return <LogOut size={64} className="text-gray-500" />;
+      case 'not_entered':
+        return <LogIn size={64} className="text-gray-500" />;
       default:
         return <XCircle size={64} className="text-gray-400" />;
     }
@@ -105,6 +117,10 @@ export function GuardVerify() {
         return '车辆已在园内';
       case 'not_found':
         return '未找到预约';
+      case 'already_exited':
+        return '车辆已离园';
+      case 'not_entered':
+        return '车辆未入园';
       default:
         return '核验未通过';
     }

@@ -1,5 +1,6 @@
 import { VisitRecordDAO } from '../dao/VisitRecordDAO.js';
 import { AuditDAO } from '../dao/AuditDAO.js';
+import { getDb } from '../db/database.js';
 import type { VisitRecord, PlateChangeAudit, RejectRecord } from '../../shared/types.js';
 
 export const RecordService = {
@@ -15,11 +16,18 @@ export const RecordService = {
     const todayRecords = VisitRecordDAO.listToday();
     const entered = todayRecords.filter(r => r.status === 'entered').length;
     const exited = todayRecords.filter(r => r.status === 'exited').length;
+
+    const db = getDb();
+    const inParkRow = db.prepare(
+      "SELECT COUNT(*) as count FROM visit_records WHERE status = 'entered'"
+    ).get() as { count: number };
+    const inPark = inParkRow.count;
+
     return {
       total: todayRecords.length,
       entered,
       exited,
-      inPark: entered - exited,
+      inPark,
     };
   },
 
